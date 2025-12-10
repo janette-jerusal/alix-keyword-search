@@ -5,22 +5,17 @@ import streamlit as st
 
 st.set_page_config(page_title="User Story Keyword Filter", layout="wide")
 
-st.title("🔎 User Story Keyword Filter")
+st.title("Alix Keyword Tracer")
 
 st.markdown("""
 Upload one or more Excel files containing user stories.  
-Then filter by keywords (e.g., **security, masking, privacy**) and extract:
-
-- **User Story ID**  
-- **User Story Description**  
-- **Topic Group**  
-- **No**
+Then filter by keywords and choose **which columns** to keep in the output.
 """)
 
 
-# ---------------------------
-# Helper: detect possible column matches
-# ---------------------------
+# -----------------------------------
+# Helper for detecting columns
+# -----------------------------------
 def detect_column(columns, candidates):
     cols_lower = [c.lower() for c in columns]
     for c in candidates:
@@ -29,9 +24,9 @@ def detect_column(columns, candidates):
     return None
 
 
-# ---------------------------
+# -----------------------------------
 # Upload files
-# ---------------------------
+# -----------------------------------
 uploaded_files = st.file_uploader(
     "Upload one or more Excel files",
     type=["xlsx", "xls"],
@@ -49,7 +44,7 @@ if uploaded_files:
             sheet_name = st.selectbox(
                 f"Choose a sheet from **{file.name}**:",
                 excel_obj.sheet_names,
-                key=file.name  # unique key
+                key=file.name
             )
             df = pd.read_excel(excel_obj, sheet_name=sheet_name)
             dfs.append(df)
@@ -61,49 +56,53 @@ if uploaded_files:
 
     combined_df = pd.concat(dfs, ignore_index=True)
 
-    st.subheader("Step 2: Map Your Columns")
+    # -----------------------------
+    # Step 2: Column Mapping
+    # -----------------------------
+    st.subheader("Step 2: Choose Columns for Keyword Filtering")
 
     columns = list(combined_df.columns)
 
+    # These two define WHERE we search for keywords
     id_col = st.selectbox(
-        "Select the **User Story ID** column",
+        "Select the **User Story ID** column (used for identification)",
         options=columns,
         index=columns.index(detect_column(columns, ["user story id", "id", "story id"]))
         if detect_column(columns, ["user story id", "id", "story id"]) else 0
     )
 
     desc_col = st.selectbox(
-        "Select the **User Story Description** column",
+        "Select the **User Story Description** column (searched for keywords)",
         options=columns,
         index=columns.index(detect_column(columns, ["description", "user story description", "desc"]))
         if detect_column(columns, ["description", "user story description", "desc"]) else 1
     )
 
-    topic_col = st.selectbox(
-        "Select the **Topic Group** column",
+    # -----------------------------
+    # NEW: User chooses which columns to retain
+    # -----------------------------
+    st.subheader("Step 3: Choose Which Columns to Retain in Output")
+
+    retain_cols = st.multiselect(
+        "Select columns to KEEP in the results:",
         options=columns,
-        index=columns.index(detect_column(columns, ["topic group", "topic"]))
-        if detect_column(columns, ["topic group", "topic"]) else 2
+        default=[id_col, desc_col]  # By default keep ID + Description
     )
 
-    no_col = st.selectbox(
-        "Select the **No** column",
-        options=columns,
-        index=columns.index(detect_column(columns, ["no", "number", "num"]))
-        if detect_column(columns, ["no", "number", "num"]) else 3
-    )
+    if len(retain_cols) == 0:
+        st.warning("Please select at least one column to retain.")
+        st.stop()
 
     st.write("Preview of selected columns:")
     st.dataframe(
-        combined_df[[id_col, desc_col, topic_col, no_col]].head(10),
+        combined_df[retain_cols].head(10),
         use_container_width=True
     )
 
-
-    # ---------------------------
-    # Step 3: Keyword Filtering
-    # ---------------------------
-    st.subheader("Step 3: Enter Keywords")
+    # -----------------------------
+    # Step 4: Keyword Filtering
+    # -----------------------------
+    st.subheader("Step 4: Enter Keywords")
 
     keyword_text = st.text_input(
         "Keywords (comma-separated):",
@@ -116,10 +115,9 @@ if uploaded_files:
         horizontal=True,
     )
 
-
-    # ---------------------------
-    # Execute filtering
-    # ---------------------------
+    # -----------------------------
+    # Run filtering
+    # -----------------------------
     if st.button("Filter Stories"):
         if not keyword_text.strip():
             st.warning("Please enter at least one keyword.")
@@ -140,21 +138,14 @@ if uploaded_files:
             for k in keywords:
                 mask &= descriptions.str.contains(re.escape(k), case=False, na=False)
 
-        filtered = combined_df.loc[
-            mask, [id_col, desc_col, topic_col, no_col]
-        ].copy()
-
-        filtered.columns = [
-            "User Story ID", "User Story Description", "Topic Group", "No"
-        ]
+        filtered = combined_df.loc[mask, retain_cols].copy()
 
         st.subheader(f"Results ({len(filtered)} stories found)")
         st.dataframe(filtered, use_container_width=True)
 
-
-        # ---------------------------
-        # Download as Excel
-        # ---------------------------
+        # -----------------------------
+        # Excel export
+        # -----------------------------
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
             filtered.to_excel(writer, index=False, sheet_name="FilteredStories")
@@ -164,7 +155,7 @@ if uploaded_files:
             label="💾 Download Results as Excel",
             data=output,
             file_name="filtered_user_stories.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
 
 
