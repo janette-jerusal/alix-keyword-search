@@ -5,43 +5,53 @@ import streamlit as st
 
 st.set_page_config(page_title="User Story Keyword Filter", layout="wide")
 
-st.title("Alix Keyword Tracer")
+st.title("🔎 User Story Keyword Filter")
 
-st.markdown(
-    """
+st.markdown("""
 Upload one or more Excel files containing user stories.  
-Then filter by keywords to extract:
+Then filter by keywords (e.g., **security, masking, privacy**) and extract:
 
 - **User Story ID**  
 - **User Story Description**  
 - **Topic Group**  
-- **User Story NO**
-"""
-)
+- **No**
+""")
 
+
+# ---------------------------
+# Helper: detect possible column matches
+# ---------------------------
+def detect_column(columns, candidates):
+    cols_lower = [c.lower() for c in columns]
+    for c in candidates:
+        if c in cols_lower:
+            return columns[cols_lower.index(c)]
+    return None
+
+
+# ---------------------------
+# Upload files
+# ---------------------------
 uploaded_files = st.file_uploader(
     "Upload one or more Excel files",
     type=["xlsx", "xls"],
     accept_multiple_files=True,
 )
 
-# -------------------------
-# Helper: auto-detect columns
-# -------------------------
-def autodetect(columns, targets):
-    """Return first matching column from list of possible names."""
-    cols_lower = [c.lower() for c in columns]
-    for t in targets:
-        if t in cols_lower:
-            return columns[cols_lower.index(t)]
-    return None
-
-
 if uploaded_files:
     dfs = []
+
+    st.subheader("Step 1: Select Sheet for Each File")
+
     for file in uploaded_files:
         try:
-            df = pd.read_excel(file)
+            excel_obj = pd.ExcelFile(file)
+            sheet_name = st.selectbox(
+                f"Choose a sheet from **{file.name}**:",
+                excel_obj.sheet_names,
+                key=file.name  # unique key
+            )
+            df = pd.read_excel(excel_obj, sheet_name=sheet_name)
             dfs.append(df)
         except Exception as e:
             st.error(f"Error reading {file.name}: {e}")
@@ -51,51 +61,52 @@ if uploaded_files:
 
     combined_df = pd.concat(dfs, ignore_index=True)
 
-    st.subheader("Step 1: Map your columns correctly")
+    st.subheader("Step 2: Map Your Columns")
 
     columns = list(combined_df.columns)
 
     id_col = st.selectbox(
-        "User Story ID Column",
+        "Select the **User Story ID** column",
         options=columns,
-        index=columns.index(autodetect(columns, ["user story id", "story id", "id"])) 
-        if autodetect(columns, ["user story id", "story id", "id"]) else 0
+        index=columns.index(detect_column(columns, ["user story id", "id", "story id"]))
+        if detect_column(columns, ["user story id", "id", "story id"]) else 0
     )
 
     desc_col = st.selectbox(
-        "User Story Description Column",
+        "Select the **User Story Description** column",
         options=columns,
-        index=columns.index(autodetect(columns, ["user story description", "description", "desc"])) 
-        if autodetect(columns, ["user story description", "description", "desc"]) else 1
+        index=columns.index(detect_column(columns, ["description", "user story description", "desc"]))
+        if detect_column(columns, ["description", "user story description", "desc"]) else 1
     )
 
     topic_col = st.selectbox(
-        "Topic Group Column",
+        "Select the **Topic Group** column",
         options=columns,
-        index=columns.index(autodetect(columns, ["topic group", "topic"])) 
-        if autodetect(columns, ["topic group", "topic"]) else 2
+        index=columns.index(detect_column(columns, ["topic group", "topic"]))
+        if detect_column(columns, ["topic group", "topic"]) else 2
     )
 
     no_col = st.selectbox(
-        "No Column",
+        "Select the **No** column",
         options=columns,
-        index=columns.index(autodetect(columns, ["no", "number", "num"])) 
-        if autodetect(columns, ["no", "number", "num"]) else 3
+        index=columns.index(detect_column(columns, ["no", "number", "num"]))
+        if detect_column(columns, ["no", "number", "num"]) else 3
     )
 
-    st.write("Preview:")
-    try:
-        st.dataframe(
-            combined_df[[id_col, desc_col, topic_col, no_col]].head(10),
-            use_container_width=True
-        )
-    except:
-        st.warning("Please make sure selected columns exist in all files.")
+    st.write("Preview of selected columns:")
+    st.dataframe(
+        combined_df[[id_col, desc_col, topic_col, no_col]].head(10),
+        use_container_width=True
+    )
 
-    st.subheader("Step 2: Enter keywords")
+
+    # ---------------------------
+    # Step 3: Keyword Filtering
+    # ---------------------------
+    st.subheader("Step 3: Enter Keywords")
 
     keyword_text = st.text_input(
-        "Keywords (comma-separated)",
+        "Keywords (comma-separated):",
         value="security, masking, privacy"
     )
 
@@ -105,6 +116,10 @@ if uploaded_files:
         horizontal=True,
     )
 
+
+    # ---------------------------
+    # Execute filtering
+    # ---------------------------
     if st.button("Filter Stories"):
         if not keyword_text.strip():
             st.warning("Please enter at least one keyword.")
@@ -117,7 +132,6 @@ if uploaded_files:
 
         descriptions = combined_df[desc_col].astype(str)
 
-        # Matching logic
         if match_mode == "Any keyword (OR)":
             pattern = "|".join(re.escape(k) for k in keywords)
             mask = descriptions.str.contains(pattern, case=False, na=False)
@@ -126,7 +140,6 @@ if uploaded_files:
             for k in keywords:
                 mask &= descriptions.str.contains(re.escape(k), case=False, na=False)
 
-        # Extract exactly the 4 required columns
         filtered = combined_df.loc[
             mask, [id_col, desc_col, topic_col, no_col]
         ].copy()
@@ -138,7 +151,10 @@ if uploaded_files:
         st.subheader(f"Results ({len(filtered)} stories found)")
         st.dataframe(filtered, use_container_width=True)
 
-        # Excel export
+
+        # ---------------------------
+        # Download as Excel
+        # ---------------------------
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
             filtered.to_excel(writer, index=False, sheet_name="FilteredStories")
@@ -151,5 +167,7 @@ if uploaded_files:
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
 
+
 else:
     st.info("Upload one or more Excel files to begin.")
+
