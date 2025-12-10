@@ -5,17 +5,17 @@ import streamlit as st
 
 st.set_page_config(page_title="User Story Keyword Filter", layout="wide")
 
-st.title("🔎 User Story Keyword Filter")
+st.title("Alix Keyword Tracer")
 
 st.markdown(
     """
 Upload one or more Excel files containing user stories.  
-Then filter by keywords (e.g., **security, masking, privacy**) to extract:
+Then filter by keywords to extract:
 
 - **User Story ID**  
 - **User Story Description**  
 - **Topic Group**  
-- **No**
+- **User Story NO**
 """
 )
 
